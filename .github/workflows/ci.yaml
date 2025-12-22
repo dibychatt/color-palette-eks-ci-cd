@@ -41,9 +41,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        working-directory: app/service
 
       - name: Run tests
         run: npm test
+        working-directory: app/service
 
       # ----------------------------
       # Static Application Security Testing (SAST)
