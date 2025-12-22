@@ -90,10 +90,13 @@ jobs:
       # Container Image Security Scan
       # ----------------------------
       - name: Scan Docker image with Trivy
-        run: |
-          trivy image --exit-code 1 --severity HIGH,CRITICAL \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-
+        uses: aquasecurity/trivy-action@0.27.0
+        with:
+          image-ref: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          format: 'table'
+          exit-code: '1'
+          vuln-type: os,library
+          severity: 'CRITICAL,HIGH'
       # ----------------------------
       # Push Docker image to ECR
       # ----------------------------
