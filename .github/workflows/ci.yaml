@@ -12,7 +12,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: color-palette-api
+  ECR_REPOSITORY: sample-app #color-palette-api
 
 jobs:
   ci:
