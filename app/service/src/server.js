@@ -39,7 +39,7 @@ register.registerMetric(palettesGenerated);
 // =========================
 // MIDDLEWARE
 // =========================
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 
 // CORS middleware
 app.use((req, res, next) => {
@@ -52,18 +52,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rate limiter - excludes monitoring endpoints
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 100,
-  message: { error: 'Too many requests, please try again later.' },
-  skip: (req) => {
-    const monitoringPaths = ['/health', '/ready', '/metrics'];
-    return monitoringPaths.includes(req.path);
-  }
-});
-app.use(limiter);
-
 // Request logging middleware
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
@@ -75,7 +63,7 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = (Date.now() - start) / 1000;
-    const route = req.route?.path || req.path;
+    const route = req.route?.path || 'unmatched';
     httpRequestDuration.labels(req.method, route, res.statusCode).observe(duration);
     httpRequestsTotal.labels(req.method, route, res.statusCode).inc();
   });
@@ -381,14 +369,35 @@ app.get('/ready', (req, res) => {
 
 // Prometheus metrics endpoint
 app.get('/metrics', async (req, res) => {
-  try {
-    res.set('Content-Type', register.contentType);
-    res.end(await register.metrics());
-  } catch (error) {
-    console.error('Error generating metrics:', error);
-    res.status(500).json({ error: 'Failed to generate metrics' });
+  if (process.env.METRICS_TOKEN) {
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${process.env.METRICS_TOKEN}`) {
+      return res.status(403).end();
+    }
   }
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
 });
+
+// Rate limiter - excludes monitoring endpoints
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  message: { error: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    const monitoringPaths = ['/health', '/ready', '/metrics'];
+    return monitoringPaths.includes(req.path);
+  },
+  // Use a store that can be reset for testing
+  ...(process.env.NODE_ENV === 'test' && {
+    skipFailedRequests: false,
+    skipSuccessfulRequests: false
+  })
+});
+
+app.use(limiter);
 
 // Main endpoint: Visual HTML palette
 app.get('/', (req, res) => {
@@ -432,9 +441,8 @@ app.post('/palette', (req, res) => {
   try {
     const { seedColor } = req.body;
 
-    if (seedColor) {
-      unsafeColorValidation(seedColor);
-    }
+    // Always validate input (security vulnerability fix)
+    unsafeColorValidation(seedColor);
 
     const palette = generatePalette(VERSION);
     palettesGenerated.labels(VERSION).inc();
@@ -482,8 +490,17 @@ app.use((req, res) => {
 });
 
 // Global error handler - must be last
-app.use((err, res) => {
+app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
+  
+  // Handle JSON parse errors
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({
+      error: 'Invalid JSON',
+      version: VERSION
+    });
+  }
+  
   res.status(500).json({
     error: 'Internal server error',
     version: VERSION,
@@ -497,36 +514,43 @@ app.use((err, res) => {
 // =========================
 // SERVER START
 // =========================
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🎨 Color Palette API ${VERSION} running on port ${PORT}`);
-  console.log(`📊 Metrics available at http://localhost:${PORT}/metrics`);
-  console.log(`💚 Health check at http://localhost:${PORT}/health`);
-  console.log(`🌐 Visual UI at http://localhost:${PORT}/`);
-  console.log(`📡 JSON API at http://localhost:${PORT}/api`);
-  console.log(`🔧 Environment: ${process.env.NODE_ENV || 'test'}`);
-});
+let server;
+const connections = new Set();
 
-// Graceful shutdown with timeout
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully...');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
+if (require.main === module) {
+  server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🎨 Color Palette API ${VERSION} running on port ${PORT}`);
+    console.log(`📊 Metrics available at http://localhost:${PORT}/metrics`);
+    console.log(`💚 Health check at http://localhost:${PORT}/health`);
+    console.log(`🌐 Visual UI at http://localhost:${PORT}/`);
+    console.log(`📡 JSON API at http://localhost:${PORT}/api`);
+    console.log(`🔧 Environment: ${process.env.NODE_ENV || 'test'}`);
   });
 
-  // Force shutdown after 10 seconds
-  setTimeout(() => {
-    console.error('Forced shutdown after timeout');
-    process.exit(1);
-  }, 10000);
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
+  // Track connections for graceful shutdown
+  server.on('connection', (conn) => {
+    connections.add(conn);
+    conn.on('close', () => {
+      connections.delete(conn);
+    });
   });
-});
+
+  // Graceful shutdown with timeout
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down gracefully...');
+
+    server.close(() => {
+      console.log('HTTP server closed');
+      process.exit(0);
+    });
+
+    // Force close lingering connections after 10s
+    setTimeout(() => {
+      console.warn('Forcing shutdown, closing open connections');
+      connections.forEach((conn) => conn.destroy());
+      process.exit(1);
+    }, 10000);
+  });
+}
 
 module.exports = app;
