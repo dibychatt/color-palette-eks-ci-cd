@@ -116,10 +116,11 @@ jobs:
           IMAGE_TAG=${{ github.sha }}
           KUSTOMIZE_FILE=k8s/overlays/dev/kustomization.yaml
 
-          # Update newTag using yq
-          sudo apt-get update && sudo apt-get install -y jq python3-pip
-          pip3 install yq
+          # Install Go yq
+          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
 
+          # Update newTag using yq
           yq eval ".images[0].newTag = \"$IMAGE_TAG\"" -i $KUSTOMIZE_FILE
 
           # Configure Git
@@ -129,3 +130,4 @@ jobs:
           git add $KUSTOMIZE_FILE
           git commit -m "ci: update kustomization newTag to $IMAGE_TAG [skip ci]"
           git push origin main
+
