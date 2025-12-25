@@ -123,11 +123,13 @@ jobs:
           # Update newTag using yq
           yq eval ".images[0].newTag = \"$IMAGE_TAG\"" -i $KUSTOMIZE_FILE
 
-          # Configure Git
-          git config user.name "ci-bot"
-          git config user.email "ci-bot@example.com"
-
-          git add $KUSTOMIZE_FILE
-          git commit -m "ci: update kustomization newTag to $IMAGE_TAG [skip ci]"
-          git push origin main
+      - name: Update kustomization.yaml and create PR
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GH_PAT }}
+          commit-message: "ci: update kustomization newTag to ${{ github.sha }} [skip ci]"
+          branch: "update-kustomization-${{ github.sha }}"
+          title: "Update kustomization.yaml newTag"
+          body: "Automatic update of image tag to ${{ github.sha }}"
+          base: main
 
