@@ -1,0 +1,12 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: color-palette-api
+  namespace: color-palette-api
+spec:
+  selector:
+    matchLabels:
+      app: color-palette-api
+  endpoints:
+    - port: metrics
+      interval: 15s

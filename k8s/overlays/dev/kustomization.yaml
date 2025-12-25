@@ -5,6 +5,8 @@ namespace: color-palette-api
 
 resources:
   - ../../base
+  - service-alb.yaml
+  - servicemonitor.yaml
 
 images:
   - name: sample-app
