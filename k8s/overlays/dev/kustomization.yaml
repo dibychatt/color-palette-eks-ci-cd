@@ -3,7 +3,6 @@ kind: Kustomization
 namespace: color-palette-api
 resources:
   - ../../base
-  - service-nlb.yaml
   - servicemonitor.yaml
 images:
   - name: sample-app
