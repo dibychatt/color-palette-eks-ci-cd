@@ -3,13 +3,11 @@ name: CI - Build, Test & Push Image
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:  #for manual trigger
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
 
 env:
   AWS_REGION: us-east-1
@@ -25,6 +23,9 @@ jobs:
       # ----------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
 
       # ----------------------------
       # Node.js setup & tests
@@ -123,13 +124,12 @@ jobs:
           # Update newTag using yq
           yq eval ".images[0].newTag = \"$IMAGE_TAG\"" -i $KUSTOMIZE_FILE
 
-      - name: Update kustomization.yaml and create PR
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.GH_PAT }}
-          commit-message: "ci: update kustomization newTag to ${{ github.sha }} [skip ci]"
-          branch: "update-kustomization-${{ github.sha }}"
-          title: "Update kustomization.yaml newTag"
-          body: "Automatic update of image tag to ${{ github.sha }}"
-          base: main
+      - name: Commit updated kustomization.yaml
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add k8s/overlays/dev/kustomization.yaml
+          git commit -m "ci: update image tag to ${{ github.sha }} [skip ci]"
+          git push origin main
+
 
